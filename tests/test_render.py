@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from jira_mcp.render import (
+    format_size,
     normalize_issue_key,
     render_comments,
     render_context,
@@ -56,6 +57,44 @@ def test_render_issue_core_fields() -> None:
     assert "**Assignee:** Ada" in output
     assert "Broken." in output
     assert "## Comments" not in output  # comments=None omits the section
+
+
+def test_render_issue_lists_attachments() -> None:
+    issue = _issue(
+        attachment=[
+            {
+                "id": "10023",
+                "filename": "login-broken.png",
+                "mimeType": "image/png",
+                "size": 240_640,
+                "author": {"displayName": "Grace"},
+            },
+            {
+                "id": "10024",
+                "filename": "session.har",
+                "mimeType": "application/json",
+                "size": 512,
+            },
+        ]
+    )
+    output = render_issue(issue)
+    assert "## Attachments (2)" in output
+    assert "- **login-broken.png** (id 10023, image/png, 235 KB, by Grace)" in output
+    assert "- **session.har** (id 10024, application/json, 512 B)" in output
+    assert "get_attachment" in output
+
+
+def test_render_issue_without_attachments_omits_section() -> None:
+    output = render_issue(_issue())
+    assert "## Attachments" not in output
+
+
+@pytest.mark.parametrize(
+    ("num_bytes", "expected"),
+    [(0, "0 B"), (512, "512 B"), (240_640, "235 KB"), (5 * 1024 * 1024, "5.0 MB")],
+)
+def test_format_size(num_bytes: int, expected: str) -> None:
+    assert format_size(num_bytes) == expected
 
 
 def test_render_issue_with_empty_comments() -> None:

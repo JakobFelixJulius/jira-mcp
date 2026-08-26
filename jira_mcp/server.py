@@ -15,10 +15,12 @@ from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.utilities.types import Image
 
 from .client import MYSELF_PATH, JiraClient, JiraError
 from .config import ENV_FILE, ConfigError, Settings, load_settings
 from .render import (
+    format_size,
     normalize_issue_key,
     render_comments,
     render_context,
@@ -42,7 +44,9 @@ mcp: FastMCP = FastMCP(
         "\n"
         "Workflow: start with get_issue for the full ticket, then "
         "get_issue_context to find parents, subtasks, and linked issues worth "
-        "reading. Use search_issues (JQL) when no key is given. Call whoami "
+        "reading. Use search_issues (JQL) when no key is given. When a ticket "
+        "lists image attachments relevant to the task (e.g. a screenshot on a "
+        "UI bug), fetch them with get_attachment to see them. Call whoami "
         "only to debug authentication.\n"
         "\n"
         "Constraints: strictly read-only; issues cannot be created, edited, "
@@ -64,10 +68,23 @@ def _get_client() -> JiraClient:
 
 ISSUE_FIELDS = (
     "summary,status,issuetype,priority,resolution,assignee,reporter,"
-    "labels,components,fixVersions,created,updated,description"
+    "labels,components,fixVersions,created,updated,description,attachment"
 )
 CONTEXT_FIELDS = "summary,status,issuetype,parent,subtasks,issuelinks"
 SEARCH_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "updated"]
+
+MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
+# The only mime types Claude can analyse visually, mapped to the format name
+# FastMCP's Image helper expects. Everything else (videos, PDFs, archives,
+# logs) is rejected before download.
+IMAGE_FORMATS = {
+    "image/png": "png",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
 
 
 # -- shared implementations (used by both MCP tools and --check) ---------------
@@ -137,6 +154,47 @@ async def _search_issues_impl(client: JiraClient, jql: str, limit: int) -> str:
     )
 
 
+async def _get_attachment_impl(client: JiraClient, attachment_id: str) -> Image:
+    att_id = attachment_id.strip()
+    if not att_id.isdigit():
+        raise ValueError(
+            f"'{attachment_id}' is not a valid attachment ID; expected the numeric "
+            "ID shown in the Attachments section of get_issue (e.g. '10023')."
+        )
+
+    # Metadata first: it carries mime type and size, so unsupported or
+    # oversized files are rejected without downloading a single byte.
+    meta = await client.get_json(f"/rest/api/3/attachment/{att_id}")
+    filename = str(meta.get("filename") or att_id)
+    mime_type = str(meta.get("mimeType") or "").lower()
+    size = int(meta.get("size") or 0)
+
+    image_format = IMAGE_FORMATS.get(mime_type)
+    if image_format is None:
+        supported = ", ".join(sorted(set(IMAGE_FORMATS)))
+        raise ValueError(
+            f"Attachment '{filename}' has type '{mime_type or 'unknown'}', which "
+            f"cannot be analysed visually. Only images are supported: {supported}. "
+            "Videos and other file types cannot be fetched."
+        )
+    if size > MAX_ATTACHMENT_BYTES:
+        raise ValueError(
+            f"Attachment '{filename}' is {format_size(size)}, above the "
+            f"{format_size(MAX_ATTACHMENT_BYTES)} limit for inline analysis."
+        )
+
+    data, _ = await client.get_bytes(f"/rest/api/3/attachment/content/{att_id}")
+    # Metadata can be stale or wrong; never trust it over the actual payload.
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise ValueError(
+            f"Attachment '{filename}' downloaded as {format_size(len(data))}, above "
+            f"the {format_size(MAX_ATTACHMENT_BYTES)} limit for inline analysis."
+        )
+    if not data:
+        raise ValueError(f"Attachment '{filename}' has no content.")
+    return Image(data=data, format=image_format)
+
+
 async def _whoami_impl(client: JiraClient) -> str:
     account = await client.get_json(MYSELF_PATH)
     return render_myself(account, client.base_url or "?", client.used_cloud_id_fallback)
@@ -152,7 +210,8 @@ async def get_issue(issue_key: str, include_comments: bool = True) -> str:
 
     Returns summary, status, type, priority, resolution, assignee, reporter,
     labels, components, fix versions, created/updated timestamps, the full
-    description, and (by default) the complete comment thread.
+    description, the attachment list (fetch images via get_attachment), and
+    (by default) the complete comment thread.
 
     Args:
         issue_key: Jira issue key like "PROJ-123" (case and surrounding
@@ -231,6 +290,28 @@ async def search_issues(jql: str, limit: int = 25) -> str:
     """
     try:
         return await _search_issues_impl(_get_client(), jql, limit)
+    except (JiraError, ConfigError, ValueError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@mcp.tool
+async def get_attachment(attachment_id: str) -> Image:
+    """Download an image attached to a Jira issue, for visual analysis.
+
+    Returns the image itself so it can be looked at directly. Use it when a
+    ticket's Attachments section (from get_issue) lists a screenshot or other
+    image relevant to the task, e.g. a UI bug report where the screenshot
+    shows the actual broken state.
+
+    Only images are supported (png, jpeg, gif, webp) up to 5 MB; videos and
+    other file types are rejected with an explanatory error.
+
+    Args:
+        attachment_id: Numeric attachment ID as listed in get_issue output,
+            e.g. "10023".
+    """
+    try:
+        return await _get_attachment_impl(_get_client(), attachment_id)
     except (JiraError, ConfigError, ValueError) as exc:
         raise ToolError(str(exc)) from exc
 

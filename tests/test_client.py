@@ -150,6 +150,25 @@ async def test_search_jql_post_is_the_only_allowed_post() -> None:
     assert data["ok"] is True
 
 
+async def test_get_bytes_returns_content_and_mime() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == f"{SITE}/rest/api/3/myself":
+            return httpx.Response(200, json=ACCOUNT)
+        # The JSON default must be widened, or Jira refuses raw files.
+        assert request.headers["accept"] == "*/*"
+        return httpx.Response(
+            200,
+            content=b"\x89PNG",
+            headers={"Content-Type": "image/png; charset=binary"},
+        )
+
+    client = make_client(handler)
+    data, mime = await client.get_bytes("/rest/api/3/attachment/content/10023")
+    assert data == b"\x89PNG"
+    assert mime == "image/png"  # charset parameter stripped
+
+
 async def test_404_error_mentions_permissions() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)

@@ -2,7 +2,8 @@
 
 A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code pull Jira
 ticket context (issue details, comment threads, the reference graph around a ticket,
-and JQL search results) rendered as compact Markdown.
+and JQL search results) rendered as compact Markdown. Image attachments (e.g. the
+screenshot on a UI bug ticket) can be fetched for Claude to analyze visually.
 
 ## What it deliberately cannot do
 
@@ -24,6 +25,7 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 | `get_comments(issue_key, limit=100, newest_first=False)` | Just the discussion, with author/timestamp/edited/visibility |
 | `get_issue_context(issue_key)` | Parent, subtasks, linked issues (with link direction), and epic children, each as key + type + status + summary |
 | `search_issues(jql, limit=25)` | Compact JQL search results |
+| `get_attachment(attachment_id)` | Downloads an image attachment (listed by `get_issue`) and returns it as vision input, so Claude can look at screenshots. Images only (png/jpeg/gif/webp), max 5 MB; videos and other file types are rejected |
 | `whoami()` | Which account the token resolves to; the first stop for auth debugging |
 
 ## Setup
@@ -142,7 +144,7 @@ Notes:
 
 Inside a Claude Code session:
 
-- Run `/mcp`; the `jira` server should be listed as connected, with five tools.
+- Run `/mcp`; the `jira` server should be listed as connected, with six tools.
 - Or just ask: *"use whoami to check the jira connection"*.
 
 ## Troubleshooting

@@ -25,6 +25,14 @@ def normalize_issue_key(raw: str) -> str:
     return key
 
 
+def format_size(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    if num_bytes < 1024 * 1024:
+        return f"{num_bytes / 1024:.0f} KB"
+    return f"{num_bytes / (1024 * 1024):.1f} MB"
+
+
 def _name(obj: Any, field: str = "name") -> str:
     """Safely pull a display name out of a nullable nested object."""
     if isinstance(obj, dict):
@@ -74,11 +82,28 @@ def render_issue(
     description = adf_to_markdown(fields.get("description"))
     lines.extend(["", "## Description", "", description or "*(no description)*"])
 
+    attachments = fields.get("attachment") or []
+    if attachments:
+        lines.extend(["", f"## Attachments ({len(attachments)})", ""])
+        lines.extend(_attachment_line(a) for a in attachments)
+        lines.extend(
+            ["", "*(images can be fetched for visual analysis via get_attachment)*"]
+        )
+
     if comments is not None:
         lines.extend(["", f"## Comments ({len(comments)})", ""])
         lines.append(render_comments(comments) if comments else "*(no comments)*")
 
     return "\n".join(lines)
+
+
+def _attachment_line(attachment: dict[str, Any]) -> str:
+    filename = str(attachment.get("filename") or "?")
+    mime_type = str(attachment.get("mimeType") or "unknown type")
+    size = format_size(int(attachment.get("size") or 0))
+    author = _name(attachment.get("author"), "displayName")
+    by = f", by {author}" if author else ""
+    return f"- **{filename}** (id {attachment.get('id', '?')}, {mime_type}, {size}{by})"
 
 
 def render_comments(comments: list[dict[str, Any]]) -> str:

@@ -77,6 +77,17 @@ class JiraClient:
         response = await self._request("GET", path, params=params)
         return response.json()
 
+    async def get_bytes(self, path: str) -> tuple[bytes, str]:
+        """Download binary content (e.g. attachment bytes).
+
+        Returns (content, mime type). The Accept header must be widened per
+        request: the client default of application/json would make Jira
+        refuse to serve the raw file.
+        """
+        response = await self._request("GET", path, headers={"Accept": "*/*"})
+        content_type = response.headers.get("content-type", "")
+        return response.content, content_type.split(";")[0].strip()
+
     async def search_jql(self, body: dict[str, Any]) -> Any:
         response = await self._request("POST", "/rest/api/3/search/jql", json_body=body)
         return response.json()
@@ -89,6 +100,7 @@ class JiraClient:
         path: str,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         method = method.upper()
         if method != "GET" and not (method == "POST" and path in ALLOWED_POST_PATHS):
@@ -98,7 +110,7 @@ class JiraClient:
             )
         base = await self._ensure_base_url()
         response = await self._http.request(
-            method, f"{base}{path}", params=params, json=json_body
+            method, f"{base}{path}", params=params, json=json_body, headers=headers
         )
         self._raise_for_status(response, path)
         return response
