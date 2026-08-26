@@ -32,9 +32,21 @@ logger = logging.getLogger(__name__)
 mcp: FastMCP = FastMCP(
     name="Jira (read-only)",
     instructions=(
-        "Read-only access to Jira Cloud issues. Use get_issue for full ticket "
-        "detail, get_issue_context to discover related tickets worth reading, "
-        "search_issues for JQL queries, and whoami to debug authentication."
+        "Read-only access to Jira Cloud issues.\n"
+        "\n"
+        "When to use: whenever a Jira issue key appears in the conversation. "
+        "A key is an uppercase project prefix, a hyphen, and a number (e.g. "
+        "ABC-123, PLAT-4567); keys also show up inside branch names, commit "
+        "messages, and Jira URLs. On seeing one, fetch the ticket instead of "
+        "guessing what it contains.\n"
+        "\n"
+        "Workflow: start with get_issue for the full ticket, then "
+        "get_issue_context to find parents, subtasks, and linked issues worth "
+        "reading. Use search_issues (JQL) when no key is given. Call whoami "
+        "only to debug authentication.\n"
+        "\n"
+        "Constraints: strictly read-only; issues cannot be created, edited, "
+        "or transitioned."
     ),
 )
 
