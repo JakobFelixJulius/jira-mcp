@@ -1,8 +1,8 @@
 # Jira MCP Server (read-only)
 
 A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code pull Jira
-ticket context — issue details, comment threads, the reference graph around a ticket,
-and JQL search results — rendered as compact Markdown.
+ticket context (issue details, comment threads, the reference graph around a ticket,
+and JQL search results) rendered as compact Markdown.
 
 ## What it deliberately cannot do
 
@@ -12,7 +12,7 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 1. **In code:** every HTTP request funnels through a single helper that only permits
    `GET`, with one allowlisted exception: `POST /rest/api/3/search/jql`, a read
    operation that Atlassian requires be sent as POST. Any other method raises
-   `ReadOnlyViolationError` — a future edit that adds a write call fails loudly.
+   `ReadOnlyViolationError`, so a future edit that adds a write call fails loudly.
 2. **At the credential level:** create the API token with only read scopes (below),
    so even a bug could not write.
 
@@ -22,9 +22,9 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 |---|---|
 | `get_issue(issue_key, include_comments=True)` | Full ticket detail plus (by default) the comment thread |
 | `get_comments(issue_key, limit=100, newest_first=False)` | Just the discussion, with author/timestamp/edited/visibility |
-| `get_issue_context(issue_key)` | Parent, subtasks, linked issues (with link direction), and epic children — each as key + type + status + summary |
+| `get_issue_context(issue_key)` | Parent, subtasks, linked issues (with link direction), and epic children, each as key + type + status + summary |
 | `search_issues(jql, limit=25)` | Compact JQL search results |
-| `whoami()` | Which account the token resolves to — first stop for auth debugging |
+| `whoami()` | Which account the token resolves to; the first stop for auth debugging |
 
 ## Setup
 
@@ -35,7 +35,7 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 3. Select the **Jira** app and pick **only** these scopes:
    - `read:jira-work`
    - `read:jira-user`
-4. Copy the token immediately — it is shown only once.
+4. Copy the token immediately; it is shown only once.
 
 An older *unscoped* token also works; the server handles both automatically (see below).
 
@@ -45,7 +45,7 @@ An older *unscoped* token also works; the server handles both automatically (see
 cp .env.example .env   # then edit
 ```
 
-Required keys — this is the whole configuration surface:
+Required keys (this is the whole configuration surface):
 
 | Key | Value |
 |---|---|
@@ -59,7 +59,7 @@ directory), so the server finds it no matter where it is launched from.
 
 ### 3. Install dependencies
 
-With [uv](https://docs.astral.sh/uv/) (preferred — this repo has a `uv.lock`):
+With [uv](https://docs.astral.sh/uv/) (preferred, since this repo has a `uv.lock`):
 
 ```bash
 uv sync
@@ -80,8 +80,8 @@ python -m venv .venv
 ```
 
 This prints whether `.env` was found, which base URL was selected (and whether the
-cloud-ID fallback was needed), the authenticated account, and — with a key — the
-ticket exactly as Claude would see it.
+cloud-ID fallback was needed), the authenticated account, and, when a key is given,
+the ticket exactly as Claude would see it.
 
 ## Scoped vs. unscoped tokens: the base URL problem
 
@@ -97,7 +97,7 @@ winner is cached for the process lifetime and logged to stderr.
 
 If detection ever fails: `_edge/tenant_info` is not part of Atlassian's formally
 supported REST API (though Atlassian's own support docs point at it), so it could
-change. In that case set `ATLASSIAN_CLOUD_ID` in `.env` to skip detection — the error
+change. In that case set `ATLASSIAN_CLOUD_ID` in `.env` to skip detection; the error
 message will tell you when this applies. You almost never need it.
 
 ## PyCharm setup
@@ -110,18 +110,18 @@ message will tell you when this applies. You almost never need it.
    - **Parameters:** `--check PROJ-123`
    - **Working directory:** the project root (anything works, but this is tidy)
 
-   Now you can set breakpoints anywhere (e.g. in `client.py`) and debug real requests —
-   errors inside a running MCP server are otherwise invisible.
+   Now you can set breakpoints anywhere (e.g. in `client.py`) and debug real requests.
+   Errors inside a running MCP server are otherwise invisible.
 
 ## Connect to Claude Code
 
-Use the venv's Python **by absolute path** — a bare `python` won't resolve to the venv
+Use the venv's Python **by absolute path**; a bare `python` won't resolve to the venv
 when Claude Code spawns the server.
 
 macOS/Linux:
 
 ```bash
-claude mcp add jira -- /Users/jstolle/PycharmProjects/PythonProject/.venv/bin/python -m jira_mcp
+claude mcp add jira -- /path/to/PythonProject/.venv/bin/python -m jira_mcp
 ```
 
 Windows:
@@ -142,7 +142,7 @@ Notes:
 
 Inside a Claude Code session:
 
-- Run `/mcp` — the `jira` server should be listed as connected, with five tools.
+- Run `/mcp`; the `jira` server should be listed as connected, with five tools.
 - Or just ask: *"use whoami to check the jira connection"*.
 
 ## Troubleshooting
@@ -151,27 +151,27 @@ Inside a Claude Code session:
 |---|---|
 | **401 Unauthorized** | Wrong email or token, or the token was revoked/expired. Recreate the token and update `.env`. Run `--check` to confirm. |
 | **403 Forbidden** | Scoped token missing `read:jira-work` / `read:jira-user`, or your account lacks site access. Recreate the token with both read scopes. |
-| **404 Not Found** | The issue doesn't exist — **or your account lacks permission to see it**. Jira reports issues you cannot view as 404, and a token never grants more access than the human it belongs to. Verify you can open the ticket in a browser while logged in as that account. |
-| **Empty tool list in Claude** | The server crashed at startup. Run the exact command from `claude mcp add` yourself in a terminal — startup errors print to stderr. Usual causes: wrong Python path, or missing `.env` keys. |
+| **404 Not Found** | The issue doesn't exist, **or your account lacks permission to see it**. Jira reports issues you cannot view as 404, and a token never grants more access than the human it belongs to. Verify you can open the ticket in a browser while logged in as that account. |
+| **Empty tool list in Claude** | The server crashed at startup. Run the exact command from `claude mcp add` yourself in a terminal; startup errors print to stderr. Usual causes: wrong Python path, or missing `.env` keys. |
 | **Server won't start** | Run `--check`. If it reports missing config, fix `.env`. If imports fail, re-run `uv sync` (or reinstall `requirements.txt`) and confirm the venv Python is ≥ 3.11. |
 | **Detection failed / anonymous responses** | Startup logs (stderr) say which base URL was probed and why it was rejected. If `_edge/tenant_info` is unreachable, set `ATLASSIAN_CLOUD_ID` in `.env`. |
 
 ## Notes for developers new to Python
 
 - **The venv** (`.venv/`) is a project-local copy of Python plus this project's
-  packages — the equivalent of `node_modules`, except the interpreter itself lives
+  packages: the equivalent of `node_modules`, except the interpreter itself lives
   inside it too. That's why Claude Code must be given `.venv/bin/python` by absolute
   path: there's no global install to fall back on.
 - **`asyncio.run(...)`** is needed because async functions in Python don't run just by
-  calling them — calling one returns a *coroutine object*, and something has to drive
+  calling them; calling one returns a *coroutine object*, and something has to drive
   it. There's no ambient event loop like in Node; `asyncio.run()` creates a loop, runs
   one coroutine to completion, and tears the loop down. The MCP server does this
   internally via `mcp.run()`; the `--check` mode does it explicitly.
 - **The decorators** (`@mcp.tool`) are functions that receive the function defined
-  below them and register/wrap it — like a middleware factory applied at definition
+  below them and register/wrap it, like a middleware factory applied at definition
   time. FastMCP's decorator reads the function's name, type hints, and docstring to
   generate the MCP tool schema that Claude sees; the docstring *is* the tool's API
   documentation.
-- **`python -m jira_mcp`** runs the package's `__main__.py` — the closest thing Python
+- **`python -m jira_mcp`** runs the package's `__main__.py`, the closest thing Python
   has to an npm `bin` entry. It works from any directory because `uv sync` installed
   the project into the venv.
