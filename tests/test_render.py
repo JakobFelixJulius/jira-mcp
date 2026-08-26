@@ -81,7 +81,8 @@ def test_render_issue_lists_attachments() -> None:
     assert "## Attachments (2)" in output
     assert "- **login-broken.png** (id 10023, image/png, 235 KB, by Grace)" in output
     assert "- **session.har** (id 10024, application/json, 512 B)" in output
-    assert "get_attachment" in output
+    # The hint spells out the exact call for the first *image* attachment.
+    assert 'get_attachment(attachment_id="10023")' in output
 
 
 def test_render_issue_without_attachments_omits_section() -> None:

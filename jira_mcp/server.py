@@ -11,7 +11,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -154,13 +154,39 @@ async def _search_issues_impl(client: JiraClient, jql: str, limit: int) -> str:
     )
 
 
-async def _get_attachment_impl(client: JiraClient, attachment_id: str) -> Image:
-    att_id = attachment_id.strip()
-    if not att_id.isdigit():
+async def _reject_issue_key_as_attachment_id(client: JiraClient, key: str) -> NoReturn:
+    """Turn the issue-key-instead-of-ID mistake into a one-step recovery:
+    the error itself lists the valid attachment IDs of that issue."""
+    issue = await client.get_json(
+        f"/rest/api/3/issue/{key}", params={"fields": "attachment"}
+    )
+    attachments = (issue.get("fields") or {}).get("attachment") or []
+    if not attachments:
         raise ValueError(
-            f"'{attachment_id}' is not a valid attachment ID; expected the numeric "
-            "ID shown in the Attachments section of get_issue (e.g. '10023')."
+            f"'{key}' is an issue key, not an attachment ID, and {key} has "
+            "no attachments."
         )
+    listing = "; ".join(
+        f"{a.get('filename', '?')} = id {a.get('id', '?')}" for a in attachments
+    )
+    raise ValueError(
+        f"'{key}' is an issue key, not an attachment ID. Attachments on {key}: "
+        f"{listing}. Call get_attachment again with one of these numeric IDs."
+    )
+
+
+async def _get_attachment_impl(client: JiraClient, attachment_id: str | int) -> Image:
+    att_id = str(attachment_id).strip()
+    if not att_id.isdigit():
+        try:
+            key = normalize_issue_key(att_id)
+        except ValueError:
+            raise ValueError(
+                f"'{attachment_id}' is not a valid attachment ID; expected the "
+                "numeric ID shown in the Attachments section of get_issue "
+                "(e.g. '10023')."
+            ) from None
+        await _reject_issue_key_as_attachment_id(client, key)
 
     # Metadata first: it carries mime type and size, so unsupported or
     # oversized files are rejected without downloading a single byte.
@@ -295,7 +321,7 @@ async def search_issues(jql: str, limit: int = 25) -> str:
 
 
 @mcp.tool
-async def get_attachment(attachment_id: str) -> Image:
+async def get_attachment(attachment_id: str | int) -> Image:
     """Download an image attached to a Jira issue, for visual analysis.
 
     Returns the image itself so it can be looked at directly. Use it when a
@@ -307,8 +333,9 @@ async def get_attachment(attachment_id: str) -> Image:
     other file types are rejected with an explanatory error.
 
     Args:
-        attachment_id: Numeric attachment ID as listed in get_issue output,
-            e.g. "10023".
+        attachment_id: The numeric attachment ID exactly as listed in
+            get_issue output, e.g. get_attachment(attachment_id="107474").
+            NOT the issue key and NOT the filename.
     """
     try:
         return await _get_attachment_impl(_get_client(), attachment_id)

@@ -82,11 +82,50 @@ async def test_jpeg_mime_maps_to_image_jpeg() -> None:
     assert image._mime_type == "image/jpeg"
 
 
-@pytest.mark.parametrize("bad_id", ["", "abc", "10023; DROP", "PROJ-1"])
-async def test_non_numeric_id_is_rejected(bad_id: str) -> None:
+async def test_integer_id_is_accepted() -> None:
+    # Models often send the ID as a JSON number; that must not cost a retry.
+    client = make_client(AttachmentHandler(png_meta()))
+    image = await _get_attachment_impl(client, 10023)
+    assert image.data == PNG_BYTES
+
+
+@pytest.mark.parametrize("bad_id", ["", "abc def", "10023; DROP"])
+async def test_garbage_id_is_rejected(bad_id: str) -> None:
     client = make_client(AttachmentHandler(png_meta()))
     with pytest.raises(ValueError, match="attachment ID"):
         await _get_attachment_impl(client, bad_id)
+
+
+async def test_issue_key_error_lists_the_valid_ids() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == f"{SITE}/rest/api/3/myself":
+            return httpx.Response(200, json=ACCOUNT)
+        if url.startswith(f"{SITE}/rest/api/3/issue/PROJ-1"):
+            return httpx.Response(
+                200, json={"fields": {"attachment": [png_meta(), png_meta(id="99")]}}
+            )
+        return httpx.Response(404)
+
+    client = make_client(handler)
+    with pytest.raises(ValueError, match="issue key, not an attachment ID") as exc:
+        await _get_attachment_impl(client, "proj-1")
+    assert "screenshot.png = id 10023" in str(exc.value)
+    assert "id 99" in str(exc.value)
+
+
+async def test_issue_key_without_attachments_says_so() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == f"{SITE}/rest/api/3/myself":
+            return httpx.Response(200, json=ACCOUNT)
+        if url.startswith(f"{SITE}/rest/api/3/issue/PROJ-1"):
+            return httpx.Response(200, json={"fields": {"attachment": []}})
+        return httpx.Response(404)
+
+    client = make_client(handler)
+    with pytest.raises(ValueError, match="no attachments"):
+        await _get_attachment_impl(client, "PROJ-1")
 
 
 @pytest.mark.parametrize(

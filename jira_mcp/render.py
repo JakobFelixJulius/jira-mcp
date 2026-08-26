@@ -86,15 +86,31 @@ def render_issue(
     if attachments:
         lines.extend(["", f"## Attachments ({len(attachments)})", ""])
         lines.extend(_attachment_line(a) for a in attachments)
-        lines.extend(
-            ["", "*(images can be fetched for visual analysis via get_attachment)*"]
-        )
+        hint = _attachment_hint(attachments)
+        if hint:
+            lines.extend(["", hint])
 
     if comments is not None:
         lines.extend(["", f"## Comments ({len(comments)})", ""])
         lines.append(render_comments(comments) if comments else "*(no comments)*")
 
     return "\n".join(lines)
+
+
+def _attachment_hint(attachments: list[dict[str, Any]]) -> str:
+    """Spell out the exact fetch call for the first image, so the model's
+    first get_attachment attempt already has the right parameter shape."""
+    image_ids = [
+        str(a.get("id"))
+        for a in attachments
+        if str(a.get("mimeType") or "").startswith("image/") and a.get("id")
+    ]
+    if not image_ids:
+        return ""
+    return (
+        "*(fetch images for visual analysis with the numeric id, e.g. "
+        f'get_attachment(attachment_id="{image_ids[0]}"))*'
+    )
 
 
 def _attachment_line(attachment: dict[str, Any]) -> str:
