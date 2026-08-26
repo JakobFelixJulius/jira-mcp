@@ -5,5 +5,20 @@
       "Read(./.env.local)",
       "Read(./.env.production)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in *.py) uv run ruff format \"$f\" >/dev/null 2>&1; out=$(uv run ruff check --fix \"$f\" 2>&1) || { echo \"$out\" >&2; exit 2; };; esac; exit 0; }",
+            "timeout": 60,
+            "statusMessage": "Running ruff format + lint"
+          }
+        ]
+      }
+    ]
   }
 }
