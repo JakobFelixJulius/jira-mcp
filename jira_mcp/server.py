@@ -66,10 +66,9 @@ def _get_client() -> JiraClient:
     return _client
 
 
-ISSUE_FIELDS = (
-    "summary,status,issuetype,priority,resolution,assignee,reporter,"
-    "labels,components,fixVersions,created,updated,description,attachment"
-)
+# *all so custom fields (acceptance criteria etc.) come along; comment and
+# worklog are excluded because comments are fetched separately with ordering.
+ISSUE_FIELDS = "*all,-comment,-worklog"
 CONTEXT_FIELDS = "summary,status,issuetype,parent,subtasks,issuelinks"
 SEARCH_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "updated"]
 
@@ -104,17 +103,42 @@ async def _fetch_comments(
     return list(comments)
 
 
+# Field-name catalog (customfield_10123 -> "Acceptance Criteria"), fetched
+# once per process. Only successful lookups are cached, so a transient
+# failure is retried on the next call.
+_field_names: dict[str, str] | None = None
+
+
+async def _get_field_names(client: JiraClient) -> dict[str, str]:
+    global _field_names
+    if _field_names is None:
+        try:
+            catalog = await client.get_json("/rest/api/3/field")
+        except JiraError as exc:
+            logger.warning(
+                "Field catalog unavailable; custom fields will show raw IDs: %s", exc
+            )
+            return {}
+        _field_names = {
+            str(field["id"]): str(field.get("name") or field["id"])
+            for field in catalog
+            if isinstance(field, dict) and field.get("id")
+        }
+    return _field_names
+
+
 async def _get_issue_impl(
     client: JiraClient, issue_key: str, include_comments: bool
 ) -> str:
     key = normalize_issue_key(issue_key)
+    field_names = await _get_field_names(client)
     issue = await client.get_json(
         f"/rest/api/3/issue/{key}", params={"fields": ISSUE_FIELDS}
     )
     comments = (
         await _fetch_comments(client, key, 100, False) if include_comments else None
     )
-    return render_issue(issue, comments)
+    return render_issue(issue, comments, field_names)
 
 
 async def _get_issue_context_impl(client: JiraClient, issue_key: str) -> str:
@@ -236,8 +260,10 @@ async def get_issue(issue_key: str, include_comments: bool = True) -> str:
 
     Returns summary, status, type, priority, resolution, assignee, reporter,
     labels, components, fix versions, created/updated timestamps, the full
-    description, the attachment list (fetch images via get_attachment), and
-    (by default) the complete comment thread.
+    description, all non-empty custom fields (e.g. acceptance criteria,
+    story points) with their display names, the attachment list (fetch
+    images via get_attachment), and (by default) the complete comment
+    thread.
 
     Args:
         issue_key: Jira issue key like "PROJ-123" (case and surrounding

@@ -21,7 +21,7 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 
 | Tool | Purpose |
 |---|---|
-| `get_issue(issue_key, include_comments=True)` | Full ticket detail plus (by default) the comment thread |
+| `get_issue(issue_key, include_comments=True)` | Full ticket detail including all non-empty custom fields (acceptance criteria, story points, ...) with their display names, plus (by default) the comment thread |
 | `get_comments(issue_key, limit=100, newest_first=False)` | Just the discussion, with author/timestamp/edited/visibility |
 | `get_issue_context(issue_key)` | Parent, subtasks, linked issues (with link direction), and epic children, each as key + type + status + summary |
 | `search_issues(jql, limit=25)` | Compact JQL search results |

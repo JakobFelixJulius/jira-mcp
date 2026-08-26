@@ -59,6 +59,60 @@ def test_render_issue_core_fields() -> None:
     assert "## Comments" not in output  # comments=None omits the section
 
 
+def test_render_issue_custom_fields() -> None:
+    issue = _issue(
+        customfield_10001=5.0,
+        customfield_10002={"value": "iOS"},
+        customfield_10003={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Given a card"}],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Then tags show"}],
+                },
+            ],
+        },
+        customfield_10004=None,
+        customfield_10005="",
+        customfield_10006="0|hzzzzz:",  # Rank noise
+        customfield_10007=[{"value": "web"}, {"value": "app"}],
+        customfield_10008={"unknown": "shape"},
+        customfield_10009="unmapped",
+    )
+    names = {
+        "customfield_10001": "Story Points",
+        "customfield_10002": "Platform",
+        "customfield_10003": "Acceptance Criteria",
+        "customfield_10004": "Empty A",
+        "customfield_10005": "Empty B",
+        "customfield_10006": "Rank",
+        "customfield_10007": "Channels",
+        "customfield_10008": "Exotic",
+    }
+    output = render_issue(issue, field_names=names)
+    assert "## Custom fields" in output
+    assert "- **Story Points:** 5" in output
+    assert "- **Platform:** iOS" in output
+    assert "- **Channels:** web, app" in output
+    # Multi-line rich text renders as its own block, not a bullet.
+    assert "**Acceptance Criteria:**\n\nGiven a card\n\nThen tags show" in output
+    # Empty, noise, and unrenderable fields are skipped silently.
+    assert "Empty A" not in output
+    assert "Rank" not in output
+    assert "Exotic" not in output
+    # Without a catalog entry, the raw ID is still shown rather than dropped.
+    assert "- **customfield_10009:** unmapped" in output
+
+
+def test_render_issue_without_custom_fields_omits_section() -> None:
+    output = render_issue(_issue(), field_names={})
+    assert "## Custom fields" not in output
+
+
 def test_render_issue_lists_attachments() -> None:
     issue = _issue(
         attachment=[

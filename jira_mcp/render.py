@@ -59,7 +59,9 @@ def _issue_line(issue: dict[str, Any]) -> str:
 
 
 def render_issue(
-    issue: dict[str, Any], comments: list[dict[str, Any]] | None = None
+    issue: dict[str, Any],
+    comments: list[dict[str, Any]] | None = None,
+    field_names: dict[str, str] | None = None,
 ) -> str:
     fields = issue.get("fields") or {}
     lines = [f"# {issue.get('key', '?')}: {fields.get('summary', '')}", ""]
@@ -82,6 +84,10 @@ def render_issue(
     description = adf_to_markdown(fields.get("description"))
     lines.extend(["", "## Description", "", description or "*(no description)*"])
 
+    custom_section = _render_custom_fields(fields, field_names or {})
+    if custom_section:
+        lines.extend(["", custom_section])
+
     attachments = fields.get("attachment") or []
     if attachments:
         lines.extend(["", f"## Attachments ({len(attachments)})", ""])
@@ -95,6 +101,65 @@ def render_issue(
         lines.append(render_comments(comments) if comments else "*(no comments)*")
 
     return "\n".join(lines)
+
+
+# Machine-managed custom fields whose values are meaningless to a reader
+# (Lexorank strings, dev-panel JSON blobs).
+_NOISE_CUSTOM_FIELDS = frozenset({"rank", "development"})
+
+
+def _custom_field_value(value: Any) -> str:
+    """Best-effort rendering of a custom field value of unknown shape.
+
+    Unknown structures render as "" and are skipped, so a new exotic field
+    type never dumps raw JSON into the output.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, list):
+        parts = [part for part in (_custom_field_value(v) for v in value) if part]
+        return ", ".join(parts)
+    if isinstance(value, dict):
+        if value.get("type") == "doc":  # rich-text fields arrive as ADF
+            return adf_to_markdown(value)
+        # Option / user / version / sprint objects all carry one of these.
+        for key in ("displayName", "value", "name"):
+            if value.get(key):
+                return str(value[key])
+    return ""
+
+
+def _render_custom_fields(fields: dict[str, Any], field_names: dict[str, str]) -> str:
+    items: list[tuple[str, str]] = []
+    for field_id, value in fields.items():
+        if not field_id.startswith("customfield_"):
+            continue
+        name = field_names.get(field_id, field_id)
+        if name.lower() in _NOISE_CUSTOM_FIELDS:
+            continue
+        rendered = _custom_field_value(value)
+        if rendered:
+            items.append((name, rendered))
+    if not items:
+        return ""
+    items.sort(key=lambda item: item[0].lower())
+    # Single-line values as facts; multi-line values (e.g. acceptance
+    # criteria) as their own blocks below, where Markdown survives intact.
+    bullets = [f"- **{name}:** {text}" for name, text in items if "\n" not in text]
+    blocks = [f"**{name}:**\n\n{text}" for name, text in items if "\n" in text]
+    parts = ["## Custom fields"]
+    if bullets:
+        parts.append("\n".join(bullets))
+    parts.extend(blocks)
+    return "\n\n".join(parts)
 
 
 def _attachment_hint(attachments: list[dict[str, Any]]) -> str:
