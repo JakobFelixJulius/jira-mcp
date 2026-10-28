@@ -2,8 +2,9 @@
 
 A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code pull Jira
 ticket context (issue details, comment threads, the reference graph around a ticket,
-and JQL search results) rendered as compact Markdown. Image attachments (e.g. the
-screenshot on a UI bug ticket) can be fetched for Claude to analyze visually.
+and JQL search results) rendered as compact Markdown. Attachments can be fetched
+too: images (e.g. the screenshot on a UI bug ticket) for Claude to analyze visually,
+and text files (logs, stack traces, JSON/HAR, CSV, source code, ...) as plain text.
 
 ## What it deliberately cannot do
 
@@ -25,7 +26,7 @@ transitions, deletes, or comments on anything. Enforcement is layered:
 | `get_comments(issue_key, limit=100, newest_first=False)` | Just the discussion, with author/timestamp/edited/visibility |
 | `get_issue_context(issue_key)` | Parent, subtasks, linked issues (with link direction), and epic children, each as key + type + status + summary |
 | `search_issues(jql, limit=25)` | Compact JQL search results |
-| `get_attachment(attachment_id)` | Downloads an image attachment (listed by `get_issue`) and returns it as vision input, so Claude can look at screenshots. Images only (png/jpeg/gif/webp), max 5 MB; videos and other file types are rejected |
+| `get_attachment(attachment_id)` | Downloads an attachment (listed by `get_issue`). Images (png/jpeg/gif/webp) come back as vision input, so Claude can look at screenshots; text files (detected by mime type, or by extension when Jira reports `application/octet-stream`) come back as text. Files of unknown type and extension (e.g. `Dockerfile`, `app.log.1`) are downloaded and served as text if their content has no NUL bytes and is valid UTF-8 (or UTF-16 with BOM). Text over 20,000 characters is saved in full (as UTF-8) under `<tmp>/jira-mcp/attachments/`, and the tool returns that path plus the first and last 50 lines, so Claude can grep or page through the file instead of loading it all. Max 5 MB; videos, PDFs, archives and other binary files are rejected |
 | `whoami()` | Which account the token resolves to; the first stop for auth debugging |
 
 ## Setup

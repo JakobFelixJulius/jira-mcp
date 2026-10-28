@@ -6,6 +6,8 @@ import pytest
 
 from jira_mcp.render import (
     format_size,
+    is_text_attachment,
+    needs_content_sniff,
     normalize_issue_key,
     render_comments,
     render_context,
@@ -137,6 +139,72 @@ def test_render_issue_lists_attachments() -> None:
     assert "- **session.har** (id 10024, application/json, 512 B)" in output
     # The hint spells out the exact call for the first *image* attachment.
     assert 'get_attachment(attachment_id="10023")' in output
+
+
+def test_attachment_hint_points_at_text_file_when_no_images() -> None:
+    issue = _issue(
+        attachment=[
+            {"id": "1", "filename": "demo.mp4", "mimeType": "video/mp4", "size": 9},
+            {"id": "2", "filename": "app.log", "mimeType": "text/plain", "size": 9},
+        ]
+    )
+    assert 'get_attachment(attachment_id="2")' in render_issue(issue)
+
+
+def test_attachment_hint_omitted_when_nothing_is_readable() -> None:
+    issue = _issue(
+        attachment=[
+            {"id": "1", "filename": "demo.mp4", "mimeType": "video/mp4", "size": 9}
+        ]
+    )
+    assert "get_attachment(" not in render_issue(issue)
+
+
+@pytest.mark.parametrize(
+    ("mime", "filename", "expected"),
+    [
+        ("text/plain", "notes", True),
+        ("text/csv; charset=utf-8", "x.csv", True),
+        ("application/json", "x", True),
+        ("application/vnd.api+json", "x", True),
+        ("image/svg+xml", "icon.svg", True),
+        ("application/octet-stream", "server.LOG", True),
+        ("application/octet-stream", ".env", True),
+        ("application/octet-stream", "blob", False),
+        ("application/pdf", "spec.pdf", False),
+        ("image/png", "shot.png", False),
+        ("", "archive.zip", False),
+    ],
+)
+def test_is_text_attachment(mime: str, filename: str, expected: bool) -> None:
+    assert is_text_attachment(mime, filename) is expected
+
+
+@pytest.mark.parametrize(
+    ("mime", "filename", "expected"),
+    [
+        ("application/octet-stream", "Dockerfile", True),
+        ("", "app.log.1", True),
+        ("binary/octet-stream", "blob", True),
+        ("application/octet-stream", "server.log", False),
+        ("application/octet-stream", "release.APK", False),
+        ("", "dump.mdmp", False),
+        ("application/pdf", "spec", False),
+        ("text/plain", "notes", False),
+    ],
+)
+def test_needs_content_sniff(mime: str, filename: str, expected: bool) -> None:
+    assert needs_content_sniff(mime, filename) is expected
+
+
+def test_attachment_hint_covers_untyped_files() -> None:
+    issue = _issue(
+        attachment=[
+            {"id": "1", "filename": "demo.mp4", "mimeType": "video/mp4", "size": 9},
+            {"id": "2", "filename": "Dockerfile", "mimeType": "", "size": 9},
+        ]
+    )
+    assert 'get_attachment(attachment_id="2")' in render_issue(issue)
 
 
 def test_render_issue_without_attachments_omits_section() -> None:

@@ -33,6 +33,85 @@ def format_size(num_bytes: int) -> str:
     return f"{num_bytes / (1024 * 1024):.1f} MB"
 
 
+TEXT_MIME_TYPES = {
+    "application/json",
+    "application/x-ndjson",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/toml",
+    "application/javascript",
+    "application/x-javascript",
+    "application/typescript",
+    "application/x-sh",
+    "application/x-httpd-php",
+    "application/sql",
+    "application/graphql",
+    "application/csv",
+}
+
+# Jira often labels text files it doesn't recognise (.log, .har, .env, ...)
+# as application/octet-stream, so the extension is the fallback signal.
+TEXT_EXTENSIONS = {
+    ".txt", ".log", ".out", ".err", ".md", ".rst", ".csv", ".tsv",
+    ".json", ".ndjson", ".har", ".xml", ".yaml", ".yml", ".toml",
+    ".ini", ".cfg", ".conf", ".properties", ".env", ".sql", ".graphql",
+    ".sh", ".bash", ".zsh", ".ps1", ".bat", ".py", ".js", ".mjs", ".ts",
+    ".tsx", ".jsx", ".java", ".kt", ".cs", ".go", ".rb", ".php", ".rs",
+    ".c", ".h", ".cpp", ".swift", ".html", ".htm", ".css", ".scss",
+    ".svg", ".diff", ".patch", ".srt", ".vtt",
+}  # fmt: skip
+
+
+UNKNOWN_MIME_TYPES = {
+    "",
+    "application/octet-stream",
+    "binary/octet-stream",
+    "application/unknown",
+}
+
+# Binaries Jira commonly labels application/octet-stream. Rejecting them by
+# name spares a download that content sniffing would reject anyway.
+BINARY_EXTENSIONS = {
+    ".bin", ".exe", ".dll", ".so", ".dylib", ".o", ".a", ".class", ".jar",
+    ".war", ".apk", ".aab", ".ipa", ".dmg", ".pkg", ".msi", ".deb", ".rpm",
+    ".dmp", ".mdmp", ".hprof", ".db", ".sqlite", ".realm", ".zip", ".7z",
+    ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".pdf", ".doc", ".docx",
+    ".xls", ".xlsx", ".ppt", ".pptx", ".heic", ".mp3", ".mp4", ".mov",
+    ".m4a", ".wav", ".jks", ".keystore", ".p12",
+}  # fmt: skip
+
+
+def _base_mime(mime_type: str) -> str:
+    return mime_type.lower().split(";")[0].strip()
+
+
+def _extension(filename: str) -> str:
+    _, dot, extension = filename.lower().rpartition(".")
+    return f".{extension}" if dot else ""
+
+
+def is_text_attachment(mime_type: str, filename: str) -> bool:
+    mime = _base_mime(mime_type)
+    if (
+        mime.startswith("text/")
+        or mime in TEXT_MIME_TYPES
+        or mime.endswith(("+json", "+xml"))
+    ):
+        return True
+    return _extension(filename) in TEXT_EXTENSIONS
+
+
+def needs_content_sniff(mime_type: str, filename: str) -> bool:
+    """True for files of unknown type (Dockerfile, app.log.1, ...) that can
+    only be classified as text or binary by looking at their bytes."""
+    return (
+        _base_mime(mime_type) in UNKNOWN_MIME_TYPES
+        and not is_text_attachment(mime_type, filename)
+        and _extension(filename) not in BINARY_EXTENSIONS
+    )
+
+
 def _name(obj: Any, field: str = "name") -> str:
     """Safely pull a display name out of a nullable nested object."""
     if isinstance(obj, dict):
@@ -163,18 +242,26 @@ def _render_custom_fields(fields: dict[str, Any], field_names: dict[str, str]) -
 
 
 def _attachment_hint(attachments: list[dict[str, Any]]) -> str:
-    """Spell out the exact fetch call for the first image, so the model's
-    first get_attachment attempt already has the right parameter shape."""
-    image_ids = [
-        str(a.get("id"))
-        for a in attachments
-        if str(a.get("mimeType") or "").startswith("image/") and a.get("id")
+    """Spell out the exact fetch call for the first readable attachment, so
+    the model's first get_attachment attempt already has the right shape."""
+    readable_ids = [
+        str(a.get("id")) for a in attachments if a.get("id") and _may_be_readable(a)
     ]
-    if not image_ids:
+    if not readable_ids:
         return ""
     return (
-        "*(fetch images for visual analysis with the numeric id, e.g. "
-        f'get_attachment(attachment_id="{image_ids[0]}"))*'
+        "*(fetch images or text files (logs, JSON, CSV, ...) with the numeric "
+        f'id, e.g. get_attachment(attachment_id="{readable_ids[0]}"))*'
+    )
+
+
+def _may_be_readable(attachment: dict[str, Any]) -> bool:
+    mime_type = str(attachment.get("mimeType") or "")
+    filename = str(attachment.get("filename") or "")
+    return (
+        mime_type.startswith("image/")
+        or is_text_attachment(mime_type, filename)
+        or needs_content_sniff(mime_type, filename)
     )
 
 
